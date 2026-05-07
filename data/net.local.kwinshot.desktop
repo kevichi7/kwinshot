@@ -1,0 +1,24 @@
+[Desktop Entry]
+Exec=/usr/local/bin/kwinshot
+Name=KWinShot
+NoDisplay=false
+StartupNotify=false
+Type=Application
+Actions=RegionScreenshot;ActiveWindowScreenshot;CurrentScreenScreenshot;
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+X-KDE-GlobalAccel-CommandShortcut=true
+
+[Desktop Action RegionScreenshot]
+Name=Capture Rectangular Region
+Exec=/usr/local/bin/kwinshot region
+X-KDE-Shortcuts=Meta+Shift+Print
+
+[Desktop Action ActiveWindowScreenshot]
+Name=Capture Active Window
+Exec=/usr/local/bin/kwinshot active-window
+X-KDE-Shortcuts=Meta+Print
+
+[Desktop Action CurrentScreenScreenshot]
+Name=Capture Current Screen
+Exec=/usr/local/bin/kwinshot fullscreen
+X-KDE-Shortcuts=Shift+Print

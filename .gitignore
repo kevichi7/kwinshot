@@ -1,0 +1,21 @@
+# Build outputs
+/build/
+/cmake-build-*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+Makefile
+
+# Qt generated files
+*_autogen/
+
+# Editor and OS noise
+.cache/
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
