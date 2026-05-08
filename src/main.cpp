@@ -270,12 +270,11 @@ static bool writeOutput(const QImage &image, const Config &config)
 class SelectorWindow : public QWidget
 {
 public:
-    SelectorWindow(QScreen *screen, QImage frozenBackground, QColor borderColor, QString outputLabel, SelectionState *selectionState)
+    SelectorWindow(QScreen *screen, QImage frozenBackground, QColor borderColor, SelectionState *selectionState)
         : QWidget(nullptr)
         , m_screenGeometry(screen ? screen->geometry() : QRect())
         , m_frozenBackground(std::move(frozenBackground))
         , m_borderColor(std::move(borderColor))
-        , m_outputLabel(std::move(outputLabel))
         , m_selectionState(selectionState)
     {
         setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool);
@@ -343,8 +342,6 @@ protected:
             painter.setBrush(Qt::NoBrush);
             painter.drawRect(localSelection.adjusted(1, 1, -2, -2));
         }
-
-        drawOutputLabel(painter);
     }
 
     void mousePressEvent(QMouseEvent *event) override
@@ -429,44 +426,9 @@ private:
         }
     }
 
-    void drawOutputLabel(QPainter &painter)
-    {
-        if (m_outputLabel.isEmpty()) {
-            return;
-        }
-
-        QFont font = painter.font();
-        font.setBold(true);
-        painter.setFont(font);
-
-        const QFontMetrics metrics(font);
-        const int horizontalPadding = 14;
-        const int verticalPadding = 8;
-        const int maxWidth = qMax(120, width() - 32);
-        QString text = metrics.elidedText(m_outputLabel, Qt::ElideMiddle, maxWidth - horizontalPadding * 2);
-        const QRect textRect = metrics.boundingRect(text);
-        const QSize labelSize(textRect.width() + horizontalPadding * 2, textRect.height() + verticalPadding * 2);
-        const QRect labelRect(QPoint((width() - labelSize.width()) / 2, 20), labelSize);
-
-        QColor background = palette().color(QPalette::Window);
-        background.setAlpha(220);
-        QColor border = m_borderColor;
-        border.setAlpha(230);
-
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        painter.setPen(QPen(border, 1));
-        painter.setBrush(background);
-        painter.drawRoundedRect(labelRect, 6, 6);
-
-        painter.setPen(palette().color(QPalette::WindowText));
-        painter.drawText(labelRect, Qt::AlignCenter, text);
-        painter.setRenderHint(QPainter::Antialiasing, false);
-    }
-
     QRect m_screenGeometry;
     QImage m_frozenBackground;
     QColor m_borderColor;
-    QString m_outputLabel;
     SelectionState *m_selectionState = nullptr;
 };
 
@@ -520,7 +482,7 @@ static QImage cropFrozenSelection(const Selection &selection)
     return image;
 }
 
-static Selection selectRegion(bool freeze, const QColor &borderColor, const QString &outputLabel, bool debug)
+static Selection selectRegion(bool freeze, const QColor &borderColor, bool debug)
 {
     SelectionState selectionState;
     QList<SelectorWindow *> selectors;
@@ -543,7 +505,7 @@ static Selection selectRegion(bool freeze, const QColor &borderColor, const QStr
             background = captureScreen(screen->name(), debug);
         }
 
-        auto *selector = new SelectorWindow(screen, background, borderColor, outputLabel, &selectionState);
+        auto *selector = new SelectorWindow(screen, background, borderColor, &selectionState);
         selectors.append(selector);
         selectionState.windows.append(selector);
         selector->showSelector();
@@ -588,19 +550,6 @@ static QColor defaultBorderColor(const QApplication &app)
     }
 #endif
     return app.palette().color(QPalette::Highlight);
-}
-
-static QString outputLabel(const Config &config)
-{
-    if (config.output == Output::Clipboard) {
-        return QStringLiteral("Clipboard");
-    }
-
-    if (config.output == Output::Stdout) {
-        return QStringLiteral("Stdout");
-    }
-
-    return QStringLiteral("File: %1").arg(config.filePath);
 }
 
 static Config parseConfig(QApplication &app)
@@ -699,7 +648,7 @@ int main(int argc, char **argv)
     } else if (config.target == Target::Fullscreen) {
         image = captureScreen(screen ? screen->name() : QString(), config.debug);
     } else {
-        const Selection selection = selectRegion(config.freeze, config.borderColor, outputLabel(config), config.debug);
+        const Selection selection = selectRegion(config.freeze, config.borderColor, config.debug);
         if (selection.globalRect.isNull()) {
             return 0;
         }

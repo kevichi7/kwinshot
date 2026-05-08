@@ -13,7 +13,6 @@ compositor.
 - Current-screen screenshots.
 - Multi-monitor region selections.
 - Clipboard, file, and stdout output.
-- Output-mode indicator in the region selector.
 - Theme-aware selection border with an optional color override.
 - KDE shortcut actions for each capture mode.
 
@@ -111,9 +110,8 @@ The desktop file exposes separate KDE actions:
 - `Capture Current Screen` runs `kwinshot fullscreen`.
 
 After installing, open KDE's shortcut settings and bind these installed KWinShot
-actions directly. Custom-command shortcuts can also work after a system install,
-but the installed actions are the safest path because they keep KDE's app
-identity tied to the trusted desktop file.
+actions directly. Avoid creating separate custom-command shortcuts for the same
+commands; those can be treated as a different, untrusted app by KWin.
 
 ## KDE authorization
 
@@ -121,10 +119,9 @@ KWin's `ScreenShot2` API is restricted. `kwinshot` is intended to be installed
 as a normal native executable with a system desktop file. The installer keeps
 the binary and desktop file root-owned so KWin can authorize the app.
 
-If you get `NoAuthorized` errors, check that `/usr/local/bin/kwinshot` and
-`/usr/local/share/applications/net.local.kwinshot.desktop` are root-owned. Also
-make sure a local desktop-file clone in `~/.local/share/applications` is not
-shadowing the installed system entry.
+If you get `NoAuthorized` errors, make sure you are launching the installed
+application entry from `/usr/local/share/applications/net.local.kwinshot.desktop`
+and not a local clone from `~/.local/share/applications`.
 
 ## Limitations
 
