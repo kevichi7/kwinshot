@@ -136,6 +136,10 @@ shadowing the installed system entry.
   the selection overlay can appear offset or scaled while dragging between
   outputs. Single-monitor selections and same-scale cross-monitor selections are
   the most reliable.
+  
+## Acknowledgments
+
+* **seth (Arch Linux Forums):** Special thanks for [articulating the necessity](https://bbs.archlinux.org/viewtopic.php?id=298864) of using a privileged `.desktop` file to interface with restricted KWin APIs. This tool is a direct implementation of that architectural approach to solving the "NoAuthorized" error on Wayland.
 
 ## License
 
