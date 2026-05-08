@@ -6,6 +6,8 @@ Fast KWin-native screenshots for KDE Wayland, without Spectacle startup delay.
 `org.kde.KWin.ScreenShot2` API to capture screenshots directly through the
 compositor.
 
+https://github.com/user-attachments/assets/d9db2974-d909-44af-84b9-8d45209eb98f
+
 ## Features
 
 - Region screenshots from a frozen current-screen frame by default.
