@@ -21,6 +21,7 @@
 #include <QThread>
 #include <QVariantMap>
 #include <QWidget>
+#include <QWindow>
 
 #include <unistd.h>
 
@@ -48,11 +49,24 @@ struct Config {
     QColor borderColor;
 };
 
+struct FrozenScreen {
+    QRect geometry;
+    QImage image;
+};
+
 struct Selection {
     QRect globalRect;
-    QRect localRect;
-    QSize screenSize;
-    QImage frozenBackground;
+    QList<FrozenScreen> frozenScreens;
+};
+
+class SelectorWindow;
+
+struct SelectionState {
+    QPoint startGlobal;
+    QPoint currentGlobal;
+    QList<SelectorWindow *> windows;
+    bool selecting = false;
+    bool accepted = false;
 };
 
 static bool readExact(int fd, QByteArray &data, qsizetype size)
@@ -256,11 +270,12 @@ static bool writeOutput(const QImage &image, const Config &config)
 class SelectorWindow : public QWidget
 {
 public:
-    SelectorWindow(QScreen *screen, QImage frozenBackground, QColor borderColor)
+    SelectorWindow(QScreen *screen, QImage frozenBackground, QColor borderColor, SelectionState *selectionState)
         : QWidget(nullptr)
         , m_screenGeometry(screen ? screen->geometry() : QRect())
         , m_frozenBackground(std::move(frozenBackground))
         , m_borderColor(std::move(borderColor))
+        , m_selectionState(selectionState)
     {
         setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool);
         setAttribute(Qt::WA_TranslucentBackground);
@@ -274,62 +289,22 @@ public:
         }
     }
 
-    QRect selectedGlobalRect() const
+    FrozenScreen frozenScreen() const
     {
-        const QRect local = selectedLocalRect();
-        if (local.isNull()) {
-            return {};
-        }
-
-        return QRect(m_screenGeometry.topLeft() + local.topLeft(), local.size());
-    }
-
-    QRect selectedLocalRect() const
-    {
-        if (!m_accepted) {
-            return {};
-        }
-
-        QRect local = m_selection.normalized();
-        if (local.width() <= 0 || local.height() <= 0) {
-            return {};
-        }
-
-        local = local.adjusted(1, 1, -1, -1);
-        if (local.width() <= 0 || local.height() <= 0) {
-            return {};
-        }
-
-        return local;
-    }
-
-    QSize screenSize() const
-    {
-        return m_screenGeometry.size();
-    }
-
-    QImage frozenBackground() const
-    {
-        return m_frozenBackground;
-    }
-
-    bool accepted() const
-    {
-        return m_accepted;
-    }
-
-    Selection selection() const
-    {
-        Selection selection;
-        selection.globalRect = selectedGlobalRect();
-        selection.localRect = selectedLocalRect();
-        selection.screenSize = screenSize();
-        selection.frozenBackground = frozenBackground();
-        return selection;
+        return FrozenScreen{m_screenGeometry, m_frozenBackground};
     }
 
     void showSelector()
     {
+        if (QScreen *targetScreen = screen()) {
+            setScreen(targetScreen);
+            setGeometry(targetScreen->geometry());
+            winId();
+            if (QWindow *window = windowHandle()) {
+                window->setScreen(targetScreen);
+            }
+        }
+
         showFullScreen();
         raise();
     }
@@ -350,13 +325,14 @@ protected:
         painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
         painter.fillRect(rect(), QColor(0, 0, 0, 100));
 
-        const QRect selection = m_selection.normalized();
+        const QRect selection = globalSelectionRect().intersected(m_screenGeometry);
         if (!selection.isNull()) {
+            const QRect localSelection = globalToLocal(selection);
             if (!m_frozenBackground.isNull()) {
-                painter.drawImage(selection, m_frozenBackground, selection);
+                painter.drawImage(localSelection, m_frozenBackground, localSelection);
             } else {
                 painter.setCompositionMode(QPainter::CompositionMode_Clear);
-                painter.fillRect(selection, Qt::transparent);
+                painter.fillRect(localSelection, Qt::transparent);
                 painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
             }
 
@@ -364,7 +340,7 @@ protected:
             pen.setCosmetic(true);
             painter.setPen(pen);
             painter.setBrush(Qt::NoBrush);
-            painter.drawRect(selection.adjusted(1, 1, -2, -2));
+            painter.drawRect(localSelection.adjusted(1, 1, -2, -2));
         }
     }
 
@@ -374,31 +350,35 @@ protected:
             return;
         }
 
-        m_selecting = true;
-        m_start = event->position().toPoint();
-        m_selection = QRect(m_start, m_start);
-        update();
+        m_selectionState->selecting = true;
+        m_selectionState->accepted = false;
+        m_selectionState->startGlobal = localToGlobal(event->position().toPoint());
+        m_selectionState->currentGlobal = m_selectionState->startGlobal;
+        updateSelectors();
     }
 
     void mouseMoveEvent(QMouseEvent *event) override
     {
-        if (!m_selecting) {
+        if (!m_selectionState->selecting) {
             return;
         }
 
-        m_selection = QRect(m_start, event->position().toPoint()).normalized();
-        update();
+        m_selectionState->currentGlobal = localToGlobal(event->position().toPoint());
+        updateSelectors();
     }
 
     void mouseReleaseEvent(QMouseEvent *event) override
     {
-        if (!m_selecting || event->button() != Qt::LeftButton) {
+        if (!m_selectionState->selecting || event->button() != Qt::LeftButton) {
             return;
         }
 
-        m_selection = QRect(m_start, event->position().toPoint()).normalized();
-        m_selecting = false;
-        m_accepted = true;
+        m_selectionState->currentGlobal = localToGlobal(event->position().toPoint());
+        const QRect finalSelection = QRect(m_selectionState->startGlobal, m_selectionState->currentGlobal)
+                                         .normalized()
+                                         .adjusted(1, 1, -1, -1);
+        m_selectionState->selecting = false;
+        m_selectionState->accepted = finalSelection.width() > 0 && finalSelection.height() > 0;
         hide();
         qApp->quit();
     }
@@ -406,7 +386,7 @@ protected:
     void keyPressEvent(QKeyEvent *event) override
     {
         if (event->key() == Qt::Key_Escape) {
-            m_accepted = false;
+            m_selectionState->accepted = false;
             hide();
             qApp->quit();
             return;
@@ -414,52 +394,120 @@ protected:
     }
 
 private:
+    QPoint localToGlobal(const QPoint &point) const
+    {
+        return m_screenGeometry.topLeft() + point;
+    }
+
+    QRect globalToLocal(const QRect &rect) const
+    {
+        return rect.translated(-m_screenGeometry.topLeft());
+    }
+
+    QRect globalSelectionRect() const
+    {
+        if (!m_selectionState || (!m_selectionState->selecting && !m_selectionState->accepted)) {
+            return {};
+        }
+
+        QRect selection(m_selectionState->startGlobal, m_selectionState->currentGlobal);
+        selection = selection.normalized().adjusted(1, 1, -1, -1);
+        if (selection.width() <= 0 || selection.height() <= 0) {
+            return {};
+        }
+
+        return selection;
+    }
+
+    void updateSelectors()
+    {
+        for (SelectorWindow *window : m_selectionState->windows) {
+            window->update();
+        }
+    }
+
     QRect m_screenGeometry;
     QImage m_frozenBackground;
     QColor m_borderColor;
-    QPoint m_start;
-    QRect m_selection;
-    bool m_selecting = false;
-    bool m_accepted = false;
+    SelectionState *m_selectionState = nullptr;
 };
 
 static QImage cropFrozenSelection(const Selection &selection)
 {
-    if (selection.frozenBackground.isNull() || selection.localRect.isNull() || selection.screenSize.isEmpty()) {
+    if (selection.globalRect.isNull() || selection.frozenScreens.isEmpty()) {
         return {};
     }
 
-    const QImage &background = selection.frozenBackground;
-    const double scaleX = double(background.width()) / double(selection.screenSize.width());
-    const double scaleY = double(background.height()) / double(selection.screenSize.height());
+    QImage image(selection.globalRect.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
 
-    QRect sourceRect(
-        int(selection.localRect.x() * scaleX),
-        int(selection.localRect.y() * scaleY),
-        int(selection.localRect.width() * scaleX),
-        int(selection.localRect.height() * scaleY));
-    sourceRect = sourceRect.intersected(background.rect());
+    QPainter painter(&image);
+    bool painted = false;
+    for (const FrozenScreen &screen : selection.frozenScreens) {
+        if (screen.geometry.isEmpty()) {
+            continue;
+        }
 
-    if (sourceRect.isNull()) {
+        const QRect intersection = selection.globalRect.intersected(screen.geometry);
+        if (intersection.isNull()) {
+            continue;
+        }
+
+        if (screen.image.isNull()) {
+            return {};
+        }
+
+        const double scaleX = double(screen.image.width()) / double(screen.geometry.width());
+        const double scaleY = double(screen.image.height()) / double(screen.geometry.height());
+
+        QRect sourceRect(
+            int((intersection.x() - screen.geometry.x()) * scaleX),
+            int((intersection.y() - screen.geometry.y()) * scaleY),
+            int(intersection.width() * scaleX),
+            int(intersection.height() * scaleY));
+        sourceRect = sourceRect.intersected(screen.image.rect());
+        if (sourceRect.isNull()) {
+            continue;
+        }
+
+        const QRect targetRect(intersection.topLeft() - selection.globalRect.topLeft(), intersection.size());
+        painter.drawImage(targetRect, screen.image, sourceRect);
+        painted = true;
+    }
+
+    if (!painted) {
         return {};
     }
 
-    return background.copy(sourceRect);
+    return image;
 }
 
 static Selection selectRegion(bool freeze, const QColor &borderColor, bool debug)
 {
+    SelectionState selectionState;
     QList<SelectorWindow *> selectors;
     const QList<QScreen *> screens = QGuiApplication::screens();
 
     for (QScreen *screen : screens) {
+        if (debug && screen) {
+            const QRect geometry = screen->geometry();
+            std::fprintf(stderr,
+                         "kwinshot: selector screen=%s geometry x=%d y=%d width=%d height=%d\n",
+                         qPrintable(screen->name()),
+                         geometry.x(),
+                         geometry.y(),
+                         geometry.width(),
+                         geometry.height());
+        }
+
         QImage background;
         if (freeze && screen) {
             background = captureScreen(screen->name(), debug);
         }
 
-        auto *selector = new SelectorWindow(screen, background, borderColor);
+        auto *selector = new SelectorWindow(screen, background, borderColor, &selectionState);
         selectors.append(selector);
+        selectionState.windows.append(selector);
         selector->showSelector();
     }
 
@@ -481,10 +529,11 @@ static Selection selectRegion(bool freeze, const QColor &borderColor, bool debug
     qApp->exec();
 
     Selection selection;
-    for (SelectorWindow *selector : selectors) {
-        if (selector->accepted()) {
-            selection = selector->selection();
-            break;
+    if (selectionState.accepted) {
+        selection.globalRect = QRect(selectionState.startGlobal, selectionState.currentGlobal).normalized().adjusted(1, 1, -1, -1);
+        for (SelectorWindow *selector : selectors) {
+            const FrozenScreen frozenScreen = selector->frozenScreen();
+            selection.frozenScreens.append(frozenScreen);
         }
     }
 
