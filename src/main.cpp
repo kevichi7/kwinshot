@@ -340,7 +340,12 @@ protected:
             pen.setCosmetic(true);
             painter.setPen(pen);
             painter.setBrush(Qt::NoBrush);
-            painter.drawRect(localSelection.adjusted(1, 1, -2, -2));
+            QRectF borderRect(localSelection);
+            borderRect = borderRect.intersected(QRectF(rect()));
+            borderRect.adjust(1.0, 1.0, -1.0, -1.0);
+            if (borderRect.width() > 0.0 && borderRect.height() > 0.0) {
+                painter.drawRect(borderRect);
+            }
         }
     }
 
