@@ -74,6 +74,7 @@ kwinshot
 kwinshot region
 kwinshot active-window
 kwinshot fullscreen
+kwinshot region --ui
 kwinshot region --file shot.png
 kwinshot region --stdout > shot.png
 kwinshot region --no-freeze
@@ -85,8 +86,9 @@ selector. Use `--no-freeze` to select and capture the live desktop instead.
 The selection border uses your Qt/KDE theme accent or highlight color by
 default. Use `--border-color` to override it for one command.
 
-After selecting a region, use the small selector buttons to copy or save the
-screenshot. `Enter`/`Ctrl+C` copies, and `Ctrl+S` opens the save dialog.
+By default, `kwinshot region` copies immediately after you select an area. Use
+`--ui` or `--chooser` to show small copy/save buttons after selecting a region.
+In the chooser, `Enter`/`Ctrl+C` copies, and `Ctrl+S` opens the save dialog.
 
 Targets:
 
@@ -110,7 +112,8 @@ Selector options:
 
 The desktop file exposes separate KDE actions:
 
-- `Capture Rectangular Region` runs `kwinshot region`.
+- `Capture Rectangular Region to Clipboard` runs `kwinshot region`.
+- `Capture Rectangular Region with UI` runs `kwinshot region --ui`.
 - `Capture Active Window` runs `kwinshot active-window`.
 - `Capture Current Screen` runs `kwinshot fullscreen`.
 

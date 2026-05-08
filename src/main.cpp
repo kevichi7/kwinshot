@@ -55,7 +55,7 @@ struct Config {
     QString filePath;
     bool freeze = true;
     bool debug = false;
-    bool chooseOutput = true;
+    bool chooseOutput = false;
     int delayMs = 40;
     QColor borderColor;
 };
@@ -746,6 +746,8 @@ static Config parseConfig(QApplication &app)
                                   QStringLiteral("path"));
     QCommandLineOption stdoutOption(QStringLiteral("stdout"), QStringLiteral("Write PNG to stdout."));
     QCommandLineOption clipboardOption(QStringLiteral("clipboard"), QStringLiteral("Copy PNG to clipboard."));
+    QCommandLineOption chooserOption(QStringList{QStringLiteral("chooser"), QStringLiteral("ui")},
+                                     QStringLiteral("Show copy/save buttons after selecting a region."));
     QCommandLineOption noFreezeOption(QStringLiteral("no-freeze"),
                                        QStringLiteral("Select and capture the live desktop instead of the frozen frame."));
     QCommandLineOption delayOption(QStringLiteral("delay-ms"),
@@ -759,6 +761,7 @@ static Config parseConfig(QApplication &app)
     parser.addOption(fileOption);
     parser.addOption(stdoutOption);
     parser.addOption(clipboardOption);
+    parser.addOption(chooserOption);
     parser.addOption(noFreezeOption);
     parser.addOption(delayOption);
     parser.addOption(borderColorOption);
@@ -809,6 +812,9 @@ static Config parseConfig(QApplication &app)
     } else if (parser.isSet(clipboardOption)) {
         config.output = Output::Clipboard;
         config.chooseOutput = false;
+    } else if (parser.isSet(chooserOption)) {
+        config.output = Output::Clipboard;
+        config.chooseOutput = true;
     } else {
         config.output = Output::Clipboard;
     }

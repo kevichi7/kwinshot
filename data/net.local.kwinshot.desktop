@@ -4,14 +4,18 @@ Name=KWinShot
 NoDisplay=false
 StartupNotify=false
 Type=Application
-Actions=RegionScreenshot;ActiveWindowScreenshot;CurrentScreenScreenshot;
+Actions=RegionScreenshot;RegionChooserScreenshot;ActiveWindowScreenshot;CurrentScreenScreenshot;
 X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
 X-KDE-GlobalAccel-CommandShortcut=true
 
 [Desktop Action RegionScreenshot]
-Name=Capture Rectangular Region
+Name=Capture Rectangular Region to Clipboard
 Exec=/usr/local/bin/kwinshot region
 X-KDE-Shortcuts=Meta+Shift+Print
+
+[Desktop Action RegionChooserScreenshot]
+Name=Capture Rectangular Region with UI
+Exec=/usr/local/bin/kwinshot region --ui
 
 [Desktop Action ActiveWindowScreenshot]
 Name=Capture Active Window
