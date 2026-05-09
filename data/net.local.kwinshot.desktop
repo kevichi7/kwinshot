@@ -7,7 +7,7 @@ StartupNotify=false
 Type=Application
 Categories=Utility;
 Keywords=screenshot;capture;wayland;kwin;
-Actions=RegionScreenshot;ActiveWindowScreenshot;CurrentScreenScreenshot;
+Actions=RegionScreenshot;ActiveWindowScreenshot;CurrentScreenScreenshot;RegionClipboardScreenshot;
 X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
 X-KDE-GlobalAccel-CommandShortcut=true
 
@@ -25,3 +25,7 @@ X-KDE-Shortcuts=Meta+Print
 Name=Capture Current Screen
 Exec=/usr/local/bin/kwinshot fullscreen
 X-KDE-Shortcuts=Shift+Print
+
+[Desktop Action RegionClipboardScreenshot]
+Name=Capture Region to Clipboard
+Exec=/usr/local/bin/kwinshot region --clipboard
