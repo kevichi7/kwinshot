@@ -68,6 +68,7 @@ echo
 echo "Installed kwinshot."
 echo "Bind the installed KWinShot actions in KDE shortcut settings:"
 echo "  - Capture Rectangular Region"
+echo "  - Capture Region to File"
 echo "  - Capture Active Window"
 echo "  - Capture Current Screen"
 echo "  - Capture Region to Clipboard"

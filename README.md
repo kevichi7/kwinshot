@@ -75,6 +75,8 @@ kwinshot region
 kwinshot active-window
 kwinshot fullscreen
 kwinshot region --file shot.png
+kwinshot region --autosave
+kwinshot region --autosave --clipboard
 kwinshot region --stdout > shot.png
 kwinshot region --no-freeze
 kwinshot region --border-color '#ff44aa'
@@ -99,6 +101,8 @@ Outputs:
 
 - Clipboard is the default.
 - `--file path` writes a PNG file.
+- `--autosave` writes a timestamped PNG to `~/Pictures/Screenshots`.
+- Add `--clipboard` to `--file` or `--autosave` to also copy the PNG.
 - `--stdout` writes PNG bytes to stdout.
 
 Selector options:
@@ -112,6 +116,7 @@ Selector options:
 The desktop file exposes separate KDE actions:
 
 - `Capture Rectangular Region` runs `kwinshot region`.
+- `Capture Region to File` runs `kwinshot region --autosave`.
 - `Capture Active Window` runs `kwinshot active-window`.
 - `Capture Current Screen` runs `kwinshot fullscreen`.
 

@@ -5,6 +5,7 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCursor>
+#include <QDateTime>
 #include <QDBusInterface>
 #include <QDBusReply>
 #include <QDBusUnixFileDescriptor>
@@ -46,6 +47,7 @@ enum class Output {
     Clipboard,
     File,
     Stdout,
+    Autosave,
     SaveDialog,
 };
 
@@ -59,6 +61,7 @@ struct Config {
     Target target = Target::Region;
     Output output = Output::Clipboard;
     QString filePath;
+    bool copyToClipboard = false;
     bool freeze = true;
     bool debug = false;
     bool chooseOutput = true;
@@ -279,6 +282,8 @@ static QByteArray imageToPng(const QImage &image)
     return png;
 }
 
+static QString autosavePath();
+
 static bool writeClipboard(const QByteArray &png)
 {
     QProcess wlCopy;
@@ -344,6 +349,17 @@ static bool writeOutput(const QImage &image, const Config &config)
         return true;
     }
 
+    if (config.output == Output::Autosave) {
+        const QString filePath = autosavePath();
+        if (filePath.isEmpty()) {
+            return false;
+        }
+        Config fileConfig = config;
+        fileConfig.output = Output::File;
+        fileConfig.filePath = filePath;
+        return writeOutput(image, fileConfig);
+    }
+
     QSaveFile file(config.filePath);
     if (!file.open(QIODevice::WriteOnly)) {
         std::fprintf(stderr, "kwinshot: failed to open output file: %s\n", qPrintable(config.filePath));
@@ -360,7 +376,38 @@ static bool writeOutput(const QImage &image, const Config &config)
         return false;
     }
 
+    if (config.copyToClipboard) {
+        const QByteArray png = imageToPng(image);
+        if (png.isEmpty() || !writeClipboard(png)) {
+            std::fprintf(stderr, "kwinshot: saved screenshot, but failed to copy it to clipboard\n");
+            return false;
+        }
+    }
+
     return true;
+}
+
+static QString autosavePath()
+{
+    QString picturesPath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    if (picturesPath.isEmpty()) {
+        picturesPath = QDir::homePath() + QStringLiteral("/Pictures");
+    }
+
+    QDir screenshotsDir(picturesPath + QStringLiteral("/Screenshots"));
+    if (!screenshotsDir.exists() && !screenshotsDir.mkpath(QStringLiteral("."))) {
+        std::fprintf(stderr, "kwinshot: failed to create screenshots directory: %s\n", qPrintable(screenshotsDir.path()));
+        return {};
+    }
+
+    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
+    const QString baseName = QStringLiteral("kwinshot_%1").arg(stamp);
+    QString filePath = screenshotsDir.filePath(baseName + QStringLiteral(".png"));
+    for (int suffix = 1; QFile::exists(filePath); ++suffix) {
+        filePath = screenshotsDir.filePath(QStringLiteral("%1_%2.png").arg(baseName).arg(suffix));
+    }
+
+    return filePath;
 }
 
 static bool saveImageWithDialog(const QImage &image)
@@ -854,6 +901,8 @@ static Config parseConfig(QApplication &app)
                                   QStringLiteral("path"));
     QCommandLineOption stdoutOption(QStringLiteral("stdout"), QStringLiteral("Write PNG to stdout."));
     QCommandLineOption clipboardOption(QStringLiteral("clipboard"), QStringLiteral("Copy PNG to clipboard."));
+    QCommandLineOption autosaveOption(QStringLiteral("autosave"),
+                                      QStringLiteral("Write PNG to ~/Pictures/Screenshots with a timestamped name."));
     QCommandLineOption noFreezeOption(QStringLiteral("no-freeze"),
                                        QStringLiteral("Select and capture the live desktop instead of the frozen frame."));
     QCommandLineOption delayOption(QStringLiteral("delay-ms"),
@@ -867,6 +916,7 @@ static Config parseConfig(QApplication &app)
     parser.addOption(fileOption);
     parser.addOption(stdoutOption);
     parser.addOption(clipboardOption);
+    parser.addOption(autosaveOption);
     parser.addOption(noFreezeOption);
     parser.addOption(delayOption);
     parser.addOption(borderColorOption);
@@ -920,14 +970,29 @@ static Config parseConfig(QApplication &app)
                                   1);
     }
 
+    const int fileOutputOptions = int(parser.isSet(fileOption)) + int(parser.isSet(autosaveOption));
+    if (fileOutputOptions > 1) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("Choose only one file output option."),
+                                  1);
+    }
+
     const int outputOptions = int(parser.isSet(fileOption))
         + int(parser.isSet(stdoutOption))
-        + int(parser.isSet(clipboardOption));
+        + int(parser.isSet(autosaveOption));
     if (outputOptions > 1) {
         parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
                                   QStringLiteral("Choose only one output option."),
                                   1);
     }
+
+    if (parser.isSet(stdoutOption) && parser.isSet(clipboardOption)) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("--stdout cannot be combined with --clipboard."),
+                                  1);
+    }
+
+    config.copyToClipboard = parser.isSet(clipboardOption);
 
     if (parser.isSet(fileOption)) {
         if (parser.value(fileOption).isEmpty()) {
@@ -940,6 +1005,9 @@ static Config parseConfig(QApplication &app)
         config.filePath = parser.value(fileOption);
     } else if (parser.isSet(stdoutOption)) {
         config.output = Output::Stdout;
+        config.chooseOutput = false;
+    } else if (parser.isSet(autosaveOption)) {
+        config.output = Output::Autosave;
         config.chooseOutput = false;
     } else if (parser.isSet(clipboardOption)) {
         config.output = Output::Clipboard;
