@@ -31,5 +31,5 @@ Name=Capture Region to Clipboard
 Exec=/usr/local/bin/kwinshot region --clipboard
 
 [Desktop Action RegionAutosaveScreenshot]
-Name=Capture Region to File
-Exec=/usr/local/bin/kwinshot region --autosave
+Name=Capture Region to File and Clipboard
+Exec=/usr/local/bin/kwinshot region --autosave --clipboard

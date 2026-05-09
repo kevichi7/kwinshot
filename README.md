@@ -116,7 +116,7 @@ Selector options:
 The desktop file exposes separate KDE actions:
 
 - `Capture Rectangular Region` runs `kwinshot region`.
-- `Capture Region to File` runs `kwinshot region --autosave`.
+- `Capture Region to File and Clipboard` runs `kwinshot region --autosave --clipboard`.
 - `Capture Active Window` runs `kwinshot active-window`.
 - `Capture Current Screen` runs `kwinshot fullscreen`.
 
