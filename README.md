@@ -73,6 +73,7 @@ refreshes KDE's service cache.
 kwinshot
 kwinshot region
 kwinshot active-window
+kwinshot active-window --include-decorations
 kwinshot active-window --interactive
 kwinshot fullscreen
 kwinshot region --file shot.png
@@ -111,6 +112,7 @@ Selector options:
 
 - `--interactive`: use KWin's picker for supported targets.
 - `--include-cursor`: include the mouse cursor in the captured image.
+- `--include-decoration`/`--include-decorations`: include window decorations in active-window captures.
 - `--no-freeze`: capture the live desktop after selection.
 - `--border-color color`: set the selection border color. Qt color names and
   hex values such as `#3daee9` are supported.

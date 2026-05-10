@@ -63,6 +63,7 @@ struct Config {
     QString filePath;
     bool copyToClipboard = false;
     bool includeCursor = false;
+    bool includeDecoration = false;
     bool interactive = false;
     bool freeze = true;
     bool debug = false;
@@ -218,10 +219,11 @@ static QImage captureWithPipe(Call call, bool debug, const char *context)
     return image;
 }
 
-static QVariantMap captureOptions(bool includeCursor)
+static QVariantMap captureOptions(bool includeCursor, bool includeDecoration = false)
 {
     QVariantMap options;
     options.insert(QStringLiteral("include-cursor"), includeCursor);
+    options.insert(QStringLiteral("include-decoration"), includeDecoration);
     options.insert(QStringLiteral("native-resolution"), false);
     return options;
 }
@@ -243,10 +245,10 @@ static QImage captureArea(const QRect &region, bool includeCursor, bool debug)
     }, debug, "area");
 }
 
-static QImage captureActiveWindow(bool includeCursor, bool debug)
+static QImage captureActiveWindow(bool includeCursor, bool includeDecoration, bool debug)
 {
     QDBusInterface iface = screenshotInterface();
-    const QVariantMap options = captureOptions(includeCursor);
+    const QVariantMap options = captureOptions(includeCursor, includeDecoration);
 
     return captureWithPipe([&](int writeFd) {
         return QDBusReply<QVariantMap>(iface.call(
@@ -270,10 +272,10 @@ static QImage captureScreen(const QString &name, bool includeCursor, bool debug)
     }, debug, "screen");
 }
 
-static QImage captureInteractive(uint kind, bool includeCursor, bool debug)
+static QImage captureInteractive(uint kind, bool includeCursor, bool includeDecoration, bool debug)
 {
     QDBusInterface iface = screenshotInterface();
-    const QVariantMap options = captureOptions(includeCursor);
+    const QVariantMap options = captureOptions(includeCursor, includeDecoration);
 
     return captureWithPipe([&](int writeFd) {
         return QDBusReply<QVariantMap>(iface.call(
@@ -923,6 +925,11 @@ static Config parseConfig(QApplication &app)
                                        QStringLiteral("Select and capture the live desktop instead of the frozen frame."));
     QCommandLineOption includeCursorOption(QStringLiteral("include-cursor"),
                                            QStringLiteral("Include the mouse cursor in the screenshot."));
+    QCommandLineOption includeDecorationOption(QStringList{
+                                                   QStringLiteral("include-decoration"),
+                                                   QStringLiteral("include-decorations"),
+                                               },
+                                               QStringLiteral("Include window decorations in window screenshots."));
     QCommandLineOption interactiveOption(QStringLiteral("interactive"),
                                          QStringLiteral("Use KWin's interactive picker for supported targets."));
     QCommandLineOption delayOption(QStringLiteral("delay-ms"),
@@ -939,6 +946,7 @@ static Config parseConfig(QApplication &app)
     parser.addOption(autosaveOption);
     parser.addOption(noFreezeOption);
     parser.addOption(includeCursorOption);
+    parser.addOption(includeDecorationOption);
     parser.addOption(interactiveOption);
     parser.addOption(delayOption);
     parser.addOption(borderColorOption);
@@ -950,6 +958,7 @@ static Config parseConfig(QApplication &app)
     config.borderColor = defaultBorderColor(app);
     config.freeze = !parser.isSet(noFreezeOption);
     config.includeCursor = parser.isSet(includeCursorOption);
+    config.includeDecoration = parser.isSet(includeDecorationOption);
     config.interactive = parser.isSet(interactiveOption);
     config.debug = parser.isSet(debugOption) || qEnvironmentVariableIsSet("KWINSHOT_DEBUG");
 
@@ -997,6 +1006,12 @@ static Config parseConfig(QApplication &app)
     if (config.interactive && config.target == Target::Region) {
         parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
                                   QStringLiteral("--interactive is only supported with active-window and fullscreen."),
+                                  1);
+    }
+
+    if (config.includeDecoration && config.target != Target::ActiveWindow) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("--include-decoration is only supported with active-window."),
                                   1);
     }
 
@@ -1066,12 +1081,12 @@ int main(int argc, char **argv)
     QImage image;
     if (config.target == Target::ActiveWindow) {
         if (config.interactive) {
-            image = captureInteractive(0, config.includeCursor, config.debug);
+            image = captureInteractive(0, config.includeCursor, config.includeDecoration, config.debug);
         } else {
-            image = captureActiveWindow(config.includeCursor, config.debug);
+            image = captureActiveWindow(config.includeCursor, config.includeDecoration, config.debug);
         }
     } else if (config.target == Target::Fullscreen) {
-        image = captureInteractive(1, config.includeCursor, config.debug);
+        image = captureInteractive(1, config.includeCursor, false, config.debug);
     } else {
         const Selection selection = selectRegion(config.freeze, config.borderColor, config.chooseOutput, config.debug);
         if (selection.globalRect.isNull()) {
