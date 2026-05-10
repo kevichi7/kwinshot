@@ -73,6 +73,7 @@ refreshes KDE's service cache.
 kwinshot
 kwinshot region
 kwinshot active-window
+kwinshot active-window --interactive
 kwinshot fullscreen
 kwinshot region --file shot.png
 kwinshot region --autosave
@@ -95,7 +96,7 @@ from the selector also attempts to copy the saved PNG to the clipboard.
 Targets:
 
 - `region`: select a rectangular region.
-- `active-window`: capture the active window.
+- `active-window`: capture the active window, or pick a window with `--interactive`.
 - `fullscreen`: capture a screen using KWin's interactive screen picker.
 
 Outputs:
@@ -108,6 +109,7 @@ Outputs:
 
 Selector options:
 
+- `--interactive`: use KWin's picker for supported targets.
 - `--include-cursor`: include the mouse cursor in the captured image.
 - `--no-freeze`: capture the live desktop after selection.
 - `--border-color color`: set the selection border color. Qt color names and

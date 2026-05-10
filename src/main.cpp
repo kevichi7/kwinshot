@@ -63,6 +63,7 @@ struct Config {
     QString filePath;
     bool copyToClipboard = false;
     bool includeCursor = false;
+    bool interactive = false;
     bool freeze = true;
     bool debug = false;
     bool chooseOutput = true;
@@ -922,6 +923,8 @@ static Config parseConfig(QApplication &app)
                                        QStringLiteral("Select and capture the live desktop instead of the frozen frame."));
     QCommandLineOption includeCursorOption(QStringLiteral("include-cursor"),
                                            QStringLiteral("Include the mouse cursor in the screenshot."));
+    QCommandLineOption interactiveOption(QStringLiteral("interactive"),
+                                         QStringLiteral("Use KWin's interactive picker for supported targets."));
     QCommandLineOption delayOption(QStringLiteral("delay-ms"),
                                    QStringLiteral("Delay after selector closes before capture."),
                                    QStringLiteral("ms"));
@@ -936,6 +939,7 @@ static Config parseConfig(QApplication &app)
     parser.addOption(autosaveOption);
     parser.addOption(noFreezeOption);
     parser.addOption(includeCursorOption);
+    parser.addOption(interactiveOption);
     parser.addOption(delayOption);
     parser.addOption(borderColorOption);
     parser.addOption(debugOption);
@@ -946,6 +950,7 @@ static Config parseConfig(QApplication &app)
     config.borderColor = defaultBorderColor(app);
     config.freeze = !parser.isSet(noFreezeOption);
     config.includeCursor = parser.isSet(includeCursorOption);
+    config.interactive = parser.isSet(interactiveOption);
     config.debug = parser.isSet(debugOption) || qEnvironmentVariableIsSet("KWINSHOT_DEBUG");
 
     if (parser.isSet(borderColorOption)) {
@@ -986,6 +991,12 @@ static Config parseConfig(QApplication &app)
     } else {
         parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
                                   QStringLiteral("Unknown target: %1").arg(target),
+                                  1);
+    }
+
+    if (config.interactive && config.target == Target::Region) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("--interactive is only supported with active-window and fullscreen."),
                                   1);
     }
 
@@ -1054,7 +1065,11 @@ int main(int argc, char **argv)
 
     QImage image;
     if (config.target == Target::ActiveWindow) {
-        image = captureActiveWindow(config.includeCursor, config.debug);
+        if (config.interactive) {
+            image = captureInteractive(0, config.includeCursor, config.debug);
+        } else {
+            image = captureActiveWindow(config.includeCursor, config.debug);
+        }
     } else if (config.target == Target::Fullscreen) {
         image = captureInteractive(1, config.includeCursor, config.debug);
     } else {
