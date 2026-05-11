@@ -126,6 +126,22 @@ static bool readExact(int fd, uchar *data, qsizetype size)
 
 static QImage imageFromKWinResult(const QVariantMap &results, int readFd, bool debug, const char *context)
 {
+    const QString type = results.value(QStringLiteral("type")).toString();
+    if (type != QStringLiteral("raw")) {
+        std::fprintf(stderr, "kwinshot: unsupported screenshot result type: %s\n", qPrintable(type));
+        return {};
+    }
+
+    for (const QString &key : {QStringLiteral("width"),
+                               QStringLiteral("height"),
+                               QStringLiteral("stride"),
+                               QStringLiteral("format")}) {
+        if (!results.contains(key)) {
+            std::fprintf(stderr, "kwinshot: missing screenshot metadata: %s\n", qPrintable(key));
+            return {};
+        }
+    }
+
     const int width = results.value(QStringLiteral("width")).toUInt();
     const int height = results.value(QStringLiteral("height")).toUInt();
     const int stride = results.value(QStringLiteral("stride")).toUInt();
@@ -134,7 +150,7 @@ static QImage imageFromKWinResult(const QVariantMap &results, int readFd, bool d
     if (debug) {
         std::fprintf(stderr, "kwinshot: %s result type=%s width=%d height=%d stride=%d format=%d\n",
                      context,
-                     qPrintable(results.value(QStringLiteral("type")).toString()),
+                     qPrintable(type),
                      width,
                      height,
                      stride,
@@ -331,12 +347,25 @@ static QByteArray imageToPng(const QImage &image)
 
 static QString autosavePath();
 
+static void stopProcess(QProcess &process)
+{
+    if (process.state() == QProcess::NotRunning) {
+        return;
+    }
+
+    process.terminate();
+    if (!process.waitForFinished(1000)) {
+        process.kill();
+        process.waitForFinished(1000);
+    }
+}
+
 static bool writeClipboard(const QByteArray &png)
 {
     QProcess wlCopy;
     wlCopy.start(QStringLiteral("wl-copy"), {QStringLiteral("--type"), QStringLiteral("image/png")});
 
-    if (!wlCopy.waitForStarted()) {
+    if (!wlCopy.waitForStarted(2000)) {
         std::fprintf(stderr, "kwinshot: failed to start wl-copy\n");
         return false;
     }
@@ -346,11 +375,13 @@ static bool writeClipboard(const QByteArray &png)
         const qint64 written = wlCopy.write(png.constData() + offset, png.size() - offset);
         if (written < 0) {
             std::fprintf(stderr, "kwinshot: failed to write to wl-copy: %s\n", qPrintable(wlCopy.errorString()));
+            stopProcess(wlCopy);
             return false;
         }
         if (written == 0) {
-            if (!wlCopy.waitForBytesWritten()) {
+            if (!wlCopy.waitForBytesWritten(10000)) {
                 std::fprintf(stderr, "kwinshot: timed out writing to wl-copy: %s\n", qPrintable(wlCopy.errorString()));
+                stopProcess(wlCopy);
                 return false;
             }
             continue;
@@ -360,7 +391,13 @@ static bool writeClipboard(const QByteArray &png)
 
     wlCopy.closeWriteChannel();
 
-    if (!wlCopy.waitForFinished() || wlCopy.exitStatus() != QProcess::NormalExit || wlCopy.exitCode() != 0) {
+    if (!wlCopy.waitForFinished(10000)) {
+        std::fprintf(stderr, "kwinshot: timed out waiting for wl-copy\n");
+        stopProcess(wlCopy);
+        return false;
+    }
+
+    if (wlCopy.exitStatus() != QProcess::NormalExit || wlCopy.exitCode() != 0) {
         const QString error = QString::fromLocal8Bit(wlCopy.readAllStandardError()).trimmed();
         if (error.isEmpty()) {
             std::fprintf(stderr, "kwinshot: wl-copy failed\n");
@@ -413,9 +450,21 @@ static bool writeOutput(const QImage &image, const Config &config)
         return false;
     }
 
-    if (!image.save(&file, "PNG")) {
-        std::fprintf(stderr, "kwinshot: failed to write screenshot: %s\n", qPrintable(file.errorString()));
-        return false;
+    QByteArray png;
+    if (config.copyToClipboard) {
+        png = imageToPng(image);
+        if (png.isEmpty()) {
+            return false;
+        }
+        if (file.write(png) != png.size()) {
+            std::fprintf(stderr, "kwinshot: failed to write screenshot: %s\n", qPrintable(file.errorString()));
+            return false;
+        }
+    } else {
+        if (!image.save(&file, "PNG")) {
+            std::fprintf(stderr, "kwinshot: failed to write screenshot: %s\n", qPrintable(file.errorString()));
+            return false;
+        }
     }
 
     if (!file.commit()) {
@@ -424,8 +473,7 @@ static bool writeOutput(const QImage &image, const Config &config)
     }
 
     if (config.copyToClipboard) {
-        const QByteArray png = imageToPng(image);
-        if (png.isEmpty() || !writeClipboard(png)) {
+        if (!writeClipboard(png)) {
             std::fprintf(stderr, "kwinshot: saved screenshot, but failed to copy it to clipboard\n");
             return false;
         }
@@ -864,7 +912,7 @@ static QImage cropFrozenSelection(const Selection &selection)
     return image;
 }
 
-static Selection selectRegion(bool freeze, const QColor &borderColor, bool chooseOutput, bool debug)
+static Selection selectRegion(bool freeze, const QColor &borderColor, bool chooseOutput, bool includeCursor, bool debug)
 {
     SelectionState selectionState;
     selectionState.chooseOutput = chooseOutput;
@@ -885,7 +933,7 @@ static Selection selectRegion(bool freeze, const QColor &borderColor, bool choos
 
         QImage background;
         if (freeze && screen) {
-            background = captureScreen(screen->name(), false, false, debug);
+            background = captureScreen(screen->name(), includeCursor, false, debug);
         }
 
         auto *selector = new SelectorWindow(screen, background, borderColor, &selectionState);
@@ -1139,7 +1187,8 @@ int main(int argc, char **argv)
 
     QLockFile instanceLock(instanceLockPath());
     if (!instanceLock.tryLock(0)) {
-        return 0;
+        std::fprintf(stderr, "kwinshot: another instance is already running\n");
+        return 1;
     }
 
     QImage image;
@@ -1163,6 +1212,7 @@ int main(int argc, char **argv)
         const Selection selection = selectRegion(config.freeze,
                                                  config.borderColor,
                                                  config.chooseOutput,
+                                                 config.includeCursor,
                                                  config.debug);
         if (selection.globalRect.isNull()) {
             return 0;

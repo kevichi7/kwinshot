@@ -133,6 +133,7 @@ The desktop file exposes separate KDE actions:
 - `Capture Active Window` runs `kwinshot active-window`.
 - `Capture Current Screen` runs `kwinshot fullscreen`.
 - `Capture Workspace` runs `kwinshot workspace`.
+- `Capture Region to Clipboard` runs `kwinshot region --clipboard`.
 
 After installing, open KDE's shortcut settings and bind these installed KWinShot
 actions directly. Custom-command shortcuts can also work after a system install,

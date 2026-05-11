@@ -14,10 +14,12 @@ if ! command -v cmake >/dev/null 2>&1; then
 fi
 
 desktop_home="${HOME}"
+desktop_data_home="${XDG_DATA_HOME:-${desktop_home}/.local/share}"
 if (( EUID == 0 )) && [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
     desktop_home="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
+    desktop_data_home="${desktop_home}/.local/share"
 fi
-user_desktop_file="${XDG_DATA_HOME:-${desktop_home}/.local/share}/applications/${desktop_basename}"
+user_desktop_file="${desktop_data_home}/applications/${desktop_basename}"
 if [[ -e "${user_desktop_file}" ]]; then
     echo "install.sh: warning: ${user_desktop_file} may shadow the trusted system desktop file" >&2
     echo "install.sh: remove or rename it if KDE shortcuts or screenshot authorization fail" >&2
