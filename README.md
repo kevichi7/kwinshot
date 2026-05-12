@@ -83,6 +83,7 @@ kwinshot workspace --native-resolution
 kwinshot region --file shot.png
 kwinshot region --autosave
 kwinshot region --autosave --clipboard
+kwinshot region --autosave --autosave-dir ~/Shots --autosave-template '{target}_{datetime}' --print-path
 kwinshot region --stdout > shot.png
 kwinshot region --include-cursor
 kwinshot region --no-freeze
@@ -110,7 +111,13 @@ Outputs:
 - Clipboard is the default.
 - `--file path` writes a PNG file.
 - `--autosave` writes a timestamped PNG to `~/Pictures/Screenshots`.
+- `--autosave-dir path` changes the autosave directory. A leading `~/` is
+  expanded to your home directory.
+- `--autosave-template template` changes the autosave filename. The template
+  supports `{datetime}`, `{date}`, `{time}`, and `{target}`. `.png` is added
+  automatically when omitted.
 - Add `--clipboard` to `--file` or `--autosave` to also copy the PNG.
+- `--print-path` prints the saved path for `--file` or `--autosave`.
 - `--stdout` writes PNG bytes to stdout.
 
 Selector options:

@@ -62,8 +62,11 @@ struct Config {
     Target target = Target::Region;
     Output output = Output::Clipboard;
     QString filePath;
+    QString autosaveDir;
+    QString autosaveTemplate = QStringLiteral("kwinshot_{datetime}");
     QString screenName;
     bool copyToClipboard = false;
+    bool printPath = false;
     bool includeCursor = false;
     bool includeDecoration = false;
     bool nativeResolution = false;
@@ -105,6 +108,11 @@ struct SelectionState {
     bool accepted = false;
     SelectionAction action = SelectionAction::None;
 };
+
+static QRect normalizedSelectionRect(const QPoint &start, const QPoint &current)
+{
+    return QRect(start, current).normalized();
+}
 
 static bool readExact(int fd, uchar *data, qsizetype size)
 {
@@ -345,7 +353,36 @@ static QByteArray imageToPng(const QImage &image)
     return png;
 }
 
-static QString autosavePath();
+static QString targetName(Target target)
+{
+    switch (target) {
+    case Target::Region:
+        return QStringLiteral("region");
+    case Target::ActiveWindow:
+        return QStringLiteral("active-window");
+    case Target::Fullscreen:
+        return QStringLiteral("fullscreen");
+    case Target::Workspace:
+        return QStringLiteral("workspace");
+    }
+
+    return QStringLiteral("screenshot");
+}
+
+static QString expandHomePath(const QString &path)
+{
+    if (path == QStringLiteral("~")) {
+        return QDir::homePath();
+    }
+
+    if (path.startsWith(QStringLiteral("~/"))) {
+        return QDir::homePath() + path.sliced(1);
+    }
+
+    return path;
+}
+
+static QString autosavePath(const Config &config);
 
 static void stopProcess(QProcess &process)
 {
@@ -434,7 +471,7 @@ static bool writeOutput(const QImage &image, const Config &config)
     }
 
     if (config.output == Output::Autosave) {
-        const QString filePath = autosavePath();
+        const QString filePath = autosavePath(config);
         if (filePath.isEmpty()) {
             return false;
         }
@@ -479,24 +516,42 @@ static bool writeOutput(const QImage &image, const Config &config)
         }
     }
 
+    if (config.printPath) {
+        std::printf("%s\n", qPrintable(config.filePath));
+        std::fflush(stdout);
+    }
+
     return true;
 }
 
-static QString autosavePath()
+static QString autosavePath(const Config &config)
 {
-    QString picturesPath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
-    if (picturesPath.isEmpty()) {
-        picturesPath = QDir::homePath() + QStringLiteral("/Pictures");
+    QString autosaveDirPath = expandHomePath(config.autosaveDir);
+    if (autosaveDirPath.isEmpty()) {
+        autosaveDirPath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+        if (autosaveDirPath.isEmpty()) {
+            autosaveDirPath = QDir::homePath() + QStringLiteral("/Pictures");
+        }
+        autosaveDirPath = QDir(autosaveDirPath).filePath(QStringLiteral("Screenshots"));
     }
 
-    QDir screenshotsDir(picturesPath + QStringLiteral("/Screenshots"));
+    QDir screenshotsDir(autosaveDirPath);
     if (!screenshotsDir.exists() && !screenshotsDir.mkpath(QStringLiteral("."))) {
         std::fprintf(stderr, "kwinshot: failed to create screenshots directory: %s\n", qPrintable(screenshotsDir.path()));
         return {};
     }
 
-    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
-    const QString baseName = QStringLiteral("kwinshot_%1").arg(stamp);
+    const QDateTime now = QDateTime::currentDateTime();
+    QString baseName = config.autosaveTemplate;
+    baseName.replace(QStringLiteral("{datetime}"), now.toString(QStringLiteral("yyyyMMdd_HHmmss")));
+    baseName.replace(QStringLiteral("{date}"), now.toString(QStringLiteral("yyyyMMdd")));
+    baseName.replace(QStringLiteral("{time}"), now.toString(QStringLiteral("HHmmss")));
+    baseName.replace(QStringLiteral("{target}"), targetName(config.target));
+
+    if (baseName.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive)) {
+        baseName.chop(4);
+    }
+
     QString filePath = screenshotsDir.filePath(baseName + QStringLiteral(".png"));
     for (int suffix = 1; QFile::exists(filePath); ++suffix) {
         filePath = screenshotsDir.filePath(QStringLiteral("%1_%2.png").arg(baseName).arg(suffix));
@@ -679,9 +734,7 @@ protected:
         }
 
         m_selectionState->currentGlobal = localToGlobal(event->position().toPoint());
-        const QRect finalSelection = QRect(m_selectionState->startGlobal, m_selectionState->currentGlobal)
-                                         .normalized()
-                                         .adjusted(1, 1, -1, -1);
+        const QRect finalSelection = normalizedSelectionRect(m_selectionState->startGlobal, m_selectionState->currentGlobal);
         m_selectionState->selecting = false;
         if (finalSelection.width() <= 0 || finalSelection.height() <= 0) {
             m_selectionState->accepted = false;
@@ -745,8 +798,7 @@ private:
             return {};
         }
 
-        QRect selection(m_selectionState->startGlobal, m_selectionState->currentGlobal);
-        selection = selection.normalized().adjusted(1, 1, -1, -1);
+        const QRect selection = normalizedSelectionRect(m_selectionState->startGlobal, m_selectionState->currentGlobal);
         if (selection.width() <= 0 || selection.height() <= 0) {
             return {};
         }
@@ -961,7 +1013,7 @@ static Selection selectRegion(bool freeze, const QColor &borderColor, bool choos
 
     Selection selection;
     if (selectionState.accepted) {
-        selection.globalRect = QRect(selectionState.startGlobal, selectionState.currentGlobal).normalized().adjusted(1, 1, -1, -1);
+        selection.globalRect = normalizedSelectionRect(selectionState.startGlobal, selectionState.currentGlobal);
         selection.action = selectionState.action;
         for (SelectorWindow *selector : selectors) {
             const FrozenScreen frozenScreen = selector->frozenScreen();
@@ -998,6 +1050,14 @@ static Config parseConfig(QApplication &app)
     QCommandLineOption clipboardOption(QStringLiteral("clipboard"), QStringLiteral("Copy PNG to clipboard."));
     QCommandLineOption autosaveOption(QStringLiteral("autosave"),
                                       QStringLiteral("Write PNG to ~/Pictures/Screenshots with a timestamped name."));
+    QCommandLineOption autosaveDirOption(QStringLiteral("autosave-dir"),
+                                         QStringLiteral("Directory for --autosave. Defaults to ~/Pictures/Screenshots."),
+                                         QStringLiteral("path"));
+    QCommandLineOption autosaveTemplateOption(QStringLiteral("autosave-template"),
+                                              QStringLiteral("Filename template for --autosave. Supports {datetime}, {date}, {time}, and {target}."),
+                                              QStringLiteral("template"));
+    QCommandLineOption printPathOption(QStringLiteral("print-path"),
+                                       QStringLiteral("Print the saved file path for --file or --autosave."));
     QCommandLineOption noFreezeOption(QStringLiteral("no-freeze"),
                                        QStringLiteral("Select and capture the live desktop instead of the frozen frame."));
     QCommandLineOption includeCursorOption(QStringLiteral("include-cursor"),
@@ -1026,6 +1086,9 @@ static Config parseConfig(QApplication &app)
     parser.addOption(stdoutOption);
     parser.addOption(clipboardOption);
     parser.addOption(autosaveOption);
+    parser.addOption(autosaveDirOption);
+    parser.addOption(autosaveTemplateOption);
+    parser.addOption(printPathOption);
     parser.addOption(noFreezeOption);
     parser.addOption(includeCursorOption);
     parser.addOption(includeDecorationOption);
@@ -1046,7 +1109,32 @@ static Config parseConfig(QApplication &app)
     config.nativeResolution = parser.isSet(nativeResolutionOption);
     config.screenName = parser.value(screenOption);
     config.interactive = parser.isSet(interactiveOption);
+    config.printPath = parser.isSet(printPathOption);
     config.debug = parser.isSet(debugOption) || qEnvironmentVariableIsSet("KWINSHOT_DEBUG");
+
+    if (parser.isSet(autosaveDirOption)) {
+        if (parser.value(autosaveDirOption).isEmpty()) {
+            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                      QStringLiteral("--autosave-dir requires a path."),
+                                      1);
+        }
+        config.autosaveDir = parser.value(autosaveDirOption);
+    }
+
+    if (parser.isSet(autosaveTemplateOption)) {
+        const QString value = parser.value(autosaveTemplateOption);
+        if (value.isEmpty()) {
+            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                      QStringLiteral("--autosave-template requires a value."),
+                                      1);
+        }
+        if (value.contains(QLatin1Char('/'))) {
+            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                      QStringLiteral("--autosave-template must be a filename, not a path."),
+                                      1);
+        }
+        config.autosaveTemplate = value;
+    }
 
     if (parser.isSet(borderColorOption)) {
         const QColor color(parser.value(borderColorOption));
@@ -1146,6 +1234,24 @@ static Config parseConfig(QApplication &app)
     if (parser.isSet(stdoutOption) && parser.isSet(clipboardOption)) {
         parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
                                   QStringLiteral("--stdout cannot be combined with --clipboard."),
+                                  1);
+    }
+
+    if ((parser.isSet(autosaveDirOption) || parser.isSet(autosaveTemplateOption)) && !parser.isSet(autosaveOption)) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("--autosave-dir and --autosave-template require --autosave."),
+                                  1);
+    }
+
+    if (config.printPath && !parser.isSet(fileOption) && !parser.isSet(autosaveOption)) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("--print-path requires --file or --autosave."),
+                                  1);
+    }
+
+    if (config.printPath && parser.isSet(stdoutOption)) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("--print-path cannot be combined with --stdout."),
                                   1);
     }
 
